@@ -1,0 +1,305 @@
+C51 COMPILER V9.60.0.0   MAIN                                                              04/08/2026 21:15:57 PAGE 1   
+
+
+C51 COMPILER V9.60.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN .\Objects\main.obj
+COMPILER INVOKED BY: D:\Keil_v5\C51\BIN\C51.EXE main.c OPTIMIZE(8,SPEED) BROWSE DEBUG OBJECTEXTEND PRINT(.\Listings\main
+                    -.lst) TABS(2) OBJECT(.\Objects\main.obj)
+
+line level    source
+
+   1          #include <STC15F2K60S2.H>
+   2          #include "init.h"
+   3          #include "key.h"
+   4          #include "led.h"
+   5          #include "seg.h"
+   6          #include "iic.h"
+   7          #include "onewire.h"
+   8          #include "ds1302.h"
+   9          #include "uart.h"
+  10          #include "ultrawave.h"
+  11          
+  12          unsigned char KD,KU,KV,KO;
+  13          unsigned char KeySlow;
+  14          idata unsigned int SegSlow;
+  15          
+  16          idata unsigned char Seg_Buf[8]={16,16,16,16,16,16,16,16};
+  17          idata unsigned char Seg_Pos;
+  18          idata unsigned char ucLed[8]={0,0,0,0,0,0,0,0};
+  19          idata unsigned char ucRtc[3]={23,25,0};
+  20          
+  21          idata unsigned char Seg_Proc_Mode; //0-温度显示 1-时间显示 2-参数设置
+  22          float Temperature; //实时温度值
+  23          unsigned char Para_Temperature = 23; //温度参数值
+  24          
+  25          unsigned int Led_5s_Count = 0; //LED5s计数器
+  26          unsigned int Led_01s_Count = 0; //LED0.1s计数器
+  27          unsigned int JDQ_5s_Count = 0; //继电器5s计数器
+  28          
+  29          bit Work_Mode; //0-温度控制 1-时间控制
+  30          bit Time_Mode; //0-显示时分 1-显示分秒
+  31          bit WDJDQ_Mode; //0-继电器断开 1-继电器闭合
+  32          bit SJJDQ_Mode; //0-继电器断开 1-继电器闭合
+  33          bit Led1_Mode; //0-LED1灭 1-LED1亮
+  34          bit Led3_Mode; //0-LED3灭 1-LED3亮
+  35          
+  36          void Key_Proc(){
+  37   1          if(KeySlow<10) return;
+  38   1          KeySlow=0;
+  39   1      
+  40   1          KV=Key_Read();
+  41   1          KD=KV&(KO^KV);
+  42   1          KU=~KV&(KO^KV);
+  43   1          KO=KV;
+  44   1      
+  45   1          /* 在这里写按键逻辑 */
+  46   1          switch(KD)
+  47   1          {
+  48   2              case 12:
+  49   2                  Seg_Proc_Mode++;
+  50   2                  if(Seg_Proc_Mode>2) Seg_Proc_Mode=0;
+  51   2                  break;
+  52   2              case 13:
+  53   2                  Work_Mode=!Work_Mode;
+  54   2                  break;
+C51 COMPILER V9.60.0.0   MAIN                                                              04/08/2026 21:15:57 PAGE 2   
+
+  55   2              case 16:
+  56   2                  if(Seg_Proc_Mode==2)
+  57   2                  {
+  58   3                      Para_Temperature++;
+  59   3                      if(Para_Temperature > 99)Para_Temperature=99;
+  60   3                  }
+  61   2                  break;
+  62   2              case 17:
+  63   2                  if(Seg_Proc_Mode==2)
+  64   2                  {
+  65   3                      Para_Temperature--;
+  66   3                      if(Para_Temperature < 10)Para_Temperature=10;
+  67   3                  }
+  68   2                  if(Seg_Proc_Mode==1)
+  69   2                  {
+  70   3                      Time_Mode=1;
+  71   3                  }
+  72   2                  break;
+  73   2          }
+  74   1          if(Seg_Proc_Mode==1 && KU==17)
+  75   1          {
+  76   2              Time_Mode=0;
+  77   2          }
+  78   1      }
+  79          
+  80          void Seg_Proc(){
+  81   1          if(SegSlow<200) return;
+  82   1          SegSlow=0;
+  83   1      
+  84   1          Read_Rtc(ucRtc);
+  85   1          Temperature = rd_temperature();
+  86   1      
+  87   1          /* 在这里写数码管缓冲区赋值逻辑 */
+  88   1          /*
+  89   1          Seg_Buf[0]=16;
+  90   1          Seg_Buf[1]=16;
+  91   1          Seg_Buf[2]=16;
+  92   1          Seg_Buf[3]=16;
+  93   1          Seg_Buf[4]=16;
+  94   1          Seg_Buf[5]=16;
+  95   1          Seg_Buf[6]=16;
+  96   1          Seg_Buf[7]=16;
+  97   1          */
+  98   1         switch(Seg_Proc_Mode){
+  99   2             case 0:
+ 100   2                 /* 温度显示 */
+ 101   2                  Seg_Buf[0] = 17;
+ 102   2                  Seg_Buf[1] = 1;
+ 103   2                  Seg_Buf[2] = 16;
+ 104   2                  Seg_Buf[3] = 16;
+ 105   2                  Seg_Buf[4] = 16;
+ 106   2                  Seg_Buf[5] = (unsigned char)Temperature/10%10;
+ 107   2                  Seg_Buf[6] = (unsigned char)Temperature%10 + ',';
+ 108   2                  Seg_Buf[7] = (unsigned int)(Temperature * 10)%10;
+ 109   2                 break;
+ 110   2             case 1:
+ 111   2                 /* 时间显示 */
+ 112   2                 if(Time_Mode==0) //显示时分
+ 113   2                 {
+ 114   3                     Seg_Buf[0] = 17;
+ 115   3                     Seg_Buf[1] = 2;
+ 116   3                     Seg_Buf[2] = 16;
+C51 COMPILER V9.60.0.0   MAIN                                                              04/08/2026 21:15:57 PAGE 3   
+
+ 117   3                     Seg_Buf[3] = ucRtc[0]/10%10;
+ 118   3                     Seg_Buf[4] = ucRtc[0]%10;
+ 119   3                     Seg_Buf[5] = 18;
+ 120   3                     Seg_Buf[6] = ucRtc[1]/10%10;
+ 121   3                     Seg_Buf[7] = ucRtc[1]%10;
+ 122   3                 }
+ 123   2                 else //显示分秒
+ 124   2                 {
+ 125   3                 Seg_Buf[0] = 17;
+ 126   3                 Seg_Buf[1] = 2;
+ 127   3                 Seg_Buf[2] = 16;
+ 128   3                 Seg_Buf[3] = ucRtc[1]/10%10;
+ 129   3                 Seg_Buf[4] = ucRtc[1]%10;
+ 130   3                 Seg_Buf[5] = 18;
+ 131   3                 Seg_Buf[6] = ucRtc[2]/10%10;
+ 132   3                 Seg_Buf[7] = ucRtc[2]%10;
+ 133   3                 }
+ 134   2                 break;
+ 135   2             case 2:
+ 136   2                 /* 参数设置 */
+ 137   2                 Seg_Buf[0] = 17;
+ 138   2                 Seg_Buf[1] = 3;
+ 139   2                 Seg_Buf[2] = 16;
+ 140   2                 Seg_Buf[3] = 16;
+ 141   2                 Seg_Buf[4] = 16;
+ 142   2                 Seg_Buf[5] = 16;
+ 143   2                 Seg_Buf[6] = Para_Temperature/10%10;
+ 144   2                 Seg_Buf[7] = Para_Temperature%10;
+ 145   2                 break;
+ 146   2         }
+ 147   1      }
+ 148          
+ 149          void Led_Proc(){
+ 150   1          /* 在这里写 LED / 蜂鸣器 / 继电器逻辑 */
+ 151   1          if(Temperature > Para_Temperature)
+ 152   1          {
+ 153   2              WDJDQ_Mode = 1;
+ 154   2              Relay(WDJDQ_Mode);
+ 155   2          }
+ 156   1          else
+ 157   1          {
+ 158   2              WDJDQ_Mode = 0;
+ 159   2              Relay(WDJDQ_Mode);
+ 160   2          }
+ 161   1      
+ 162   1          if(ucRtc[1] == ucRtc[2] == 0)
+ 163   1          {
+ 164   2              SJJDQ_Mode = 1;
+ 165   2              Relay(SJJDQ_Mode);
+ 166   2          }
+ 167   1      
+ 168   1          if(ucRtc[1] == ucRtc[2] == 0)
+ 169   1          {
+ 170   2              Led1_Mode = 1;
+ 171   2              ucLed[0] = Led1_Mode;
+ 172   2          }
+ 173   1      
+ 174   1          if(Work_Mode == 0)
+ 175   1          {
+ 176   2              ucLed[1] = 1;
+ 177   2          }
+ 178   1          else
+C51 COMPILER V9.60.0.0   MAIN                                                              04/08/2026 21:15:57 PAGE 4   
+
+ 179   1          {
+ 180   2              ucLed[1] = 0;
+ 181   2          }
+ 182   1      
+ 183   1          if(WDJDQ_Mode == SJJDQ_Mode == 1)
+ 184   1          {
+ 185   2              Led3_Mode = 1;
+ 186   2              ucLed[2] = Led3_Mode;
+ 187   2          }
+ 188   1      }
+ 189          
+ 190          void Timer1Init(void)   //1毫秒@12.000MHz
+ 191          {
+ 192   1          AUXR &= 0xBF;
+ 193   1          TMOD &= 0x0F;
+ 194   1          TL1 = 0x18;
+ 195   1          TH1 = 0xFC;
+ 196   1          TF1 = 0;
+ 197   1          TR1 = 1;
+ 198   1          ET1 = 1;
+ 199   1          EA = 1;
+ 200   1      }
+ 201          
+ 202          void Timer1Isr() interrupt 3
+ 203          {
+ 204   1          KeySlow++;
+ 205   1          SegSlow++;
+ 206   1      
+ 207   1          if(++Seg_Pos==8) Seg_Pos=0;
+ 208   1      
+ 209   1          if(Seg_Buf[Seg_Pos]>20) Seg_Disp(Seg_Pos,Seg_Buf[Seg_Pos]-',',1);
+ 210   1          else Seg_Disp(Seg_Pos,Seg_Buf[Seg_Pos],0);
+ 211   1      
+ 212   1          Led_Disp(ucLed);
+ 213   1      
+ 214   1          if(SJJDQ_Mode == 1)
+ 215   1          {
+ 216   2              JDQ_5s_Count++;
+ 217   2              if(JDQ_5s_Count >= 5000)
+ 218   2              {
+ 219   3                  SJJDQ_Mode = 0;
+ 220   3                  JDQ_5s_Count = 0;
+ 221   3              }
+ 222   2          }
+ 223   1          
+ 224   1          if(Led1_Mode == 1)
+ 225   1          {
+ 226   2              Led_5s_Count++;
+ 227   2              if(Led_5s_Count >= 5000)
+ 228   2              {
+ 229   3                  Led1_Mode = 0;
+ 230   3                  Led_5s_Count = 0;
+ 231   3              }
+ 232   2          }
+ 233   1          if(Led3_Mode == 1)
+ 234   1          {
+ 235   2              Led_01s_Count++;
+ 236   2              if(Led_01s_Count >= 100)
+ 237   2              {
+ 238   3                  Led3_Mode = 0;
+ 239   3                  Led_01s_Count = 0;
+ 240   3              }
+C51 COMPILER V9.60.0.0   MAIN                                                              04/08/2026 21:15:57 PAGE 5   
+
+ 241   2          }
+ 242   1      }
+ 243          
+ 244          void Delay750ms(void) //@12.000MHz 延时
+ 245          {
+ 246   1        unsigned char data i, j, k;
+ 247   1      
+ 248   1        i = 35;
+ 249   1        j = 51;
+ 250   1        k = 182;
+ 251   1        do
+ 252   1        {
+ 253   2          do
+ 254   2          {
+ 255   3            while (--k);
+ 256   3          } while (--j);
+ 257   2        } while (--i);
+ 258   1      }
+ 259          
+ 260          
+ 261          void main(){
+ 262   1          rd_temperature();
+ 263   1          Delay750ms();
+ 264   1          SysInit();
+ 265   1          Timer1Init();
+ 266   1          Set_Rtc(ucRtc);
+ 267   1      
+ 268   1          while(1){
+ 269   2              Key_Proc();
+ 270   2              Seg_Proc();
+ 271   2              Led_Proc();
+ 272   2          }
+ 273   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    844    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     16    ----
+   IDATA SIZE       =     23    ----
+   BIT SIZE         =      6    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

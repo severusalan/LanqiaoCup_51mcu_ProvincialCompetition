@@ -1,0 +1,13 @@
+".\Objects\ch138.obj",
+".\Objects\ds1302.obj",
+".\Objects\iic.obj",
+".\Objects\init.obj",
+".\Objects\key.obj",
+".\Objects\led.obj",
+".\Objects\main.obj",
+".\Objects\onewire.obj",
+".\Objects\seg.obj",
+".\Objects\uart.obj",
+".\Objects\ultrawave.obj" 
+TO ".\Objects\project" 
+PRINT(".\Listings\project.m51") RAMSIZE(256) 
